@@ -21,9 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Open MPI
 RUN mkdir /tmp/openmpi && \
     cd /tmp/openmpi && \
-    curl -fSsL -O https://download.open-mpi.org/release/open-mpi/v4.0/openmpi-4.0.0.tar.gz && \
-    tar zxf openmpi-4.0.0.tar.gz && \
-    cd openmpi-4.0.0 && \
+    curl -fSsL -O https://download.open-mpi.org/release/open-mpi/v4.0/openmpi-4.0.1.tar.gz && \
+    tar zxf openmpi-4.0.1.tar.gz && \
+    cd openmpi-4.0.1 && \
     ./configure --enable-orterun-prefix-by-default && \
     make -j $(nproc) all && \
     make install && \
@@ -37,7 +37,8 @@ RUN mv /usr/local/bin/mpirun /usr/local/bin/mpirun.real && \
     chmod a+x /usr/local/bin/mpirun
 
 RUN echo "hwloc_base_binding_policy = none" >> /usr/local/etc/openmpi-mca-params.conf && \
-    echo "rmaps_base_mapping_policy = slot" >> /usr/local/etc/openmpi-mca-params.conf
+    echo "rmaps_base_mapping_policy = slot" >> /usr/local/etc/openmpi-mca-params.conf && \
+    echo "btl_tcp_if_exclude = lo,docker0" >> /usr/local/etc/openmpi-mca-params.conf
 
 ENV LD_LIBRARY_PATH=/usr/local/openmpi/lib:$LD_LIBRARY_PATH
 
@@ -60,23 +61,21 @@ ENV KMP_AFFINITY=granularity=fine,compact,1,0 KMP_BLOCKTIME=1 KMP_SETTINGS=0
 
 WORKDIR /
 
-ARG PYTHON=python3
-ARG PYTHON_PIP=python3-pip
-ARG PIP=pip3
-ARG PYTHON_VERSION=3.6.6
+ARG PYTHON=python
+ARG PYTHON_PIP=python-pip
+ARG PIP=pip
 
-RUN wget https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz && \
-    tar -xvf Python-$PYTHON_VERSION.tgz && cd Python-$PYTHON_VERSION && \
-    ./configure && make && make install && \
-    apt-get update && apt-get install -y --no-install-recommends libreadline-gplv2-dev libncursesw5-dev libssl-dev libsqlite3-dev tk-dev libgdbm-dev libc6-dev libbz2-dev && \
-    make && make install && rm -rf ../Python-$PYTHON_VERSION* && \
-    ln -s /usr/local/bin/pip3 /usr/bin/pip
+RUN apt-get update && apt-get install -y \
+    ${PYTHON} \
+    ${PYTHON_PIP}
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONIOENCODING=UTF-8 LANG=C.UTF-8 LC_ALL=C.UTF-8
 
-ARG framework_support_installable=sagemaker_tensorflow_container-2.0.0.tar.gz
+ARG framework_support_installable=sagemaker_tensorflow_container-2.0.7.dev0.tar.gz
+# $framework_installable not used
+ARG framework_installable=tensorflow-1.14.0-cp27-cp27mu-manylinux1_x86_64.whl
 COPY $framework_support_installable .
-ARG TF_URL="https://tensorflow-aws.s3-us-west-2.amazonaws.com/1.14/AmazonLinux/cpu/final/tensorflow-1.14.0-cp36-cp36m-linux_x86_64.whl"
+ARG TF_URL="https://tensorflow-aws.s3-us-west-2.amazonaws.com/1.14/AmazonLinux/cpu/final/tensorflow-1.14.0-cp27-cp27mu-linux_x86_64.whl"
 
 # Pin GCC to 4.9 (priority 200) to compile correctly against TensorFlow, PyTorch, and MXNet with horovod
 # Backup existing GCC installation as priority 100, so that it can be recovered later.
@@ -95,28 +94,27 @@ RUN ${PIP} --no-cache-dir install --upgrade pip setuptools
 RUN ln -s $(which ${PYTHON}) /usr/local/bin/python
 
 RUN ${PIP} install --no-cache-dir -U \
-           numpy==1.16.4 \
-           scipy==1.2.2 \
-           scikit-learn==0.20.3 \
-           pandas==0.24.2 \
-           Pillow==6.1.0 \
-           h5py==2.9.0 \
-           keras_applications==1.0.8 \
-           keras_preprocessing==1.1.0 \
-           keras==2.2.4 \
-           requests==2.22.0 \
-           awscli==1.16.196 \
-           mpi4py==3.0.2 \
-           "sagemaker-tensorflow>=1.14,<1.15" && \
+    numpy==1.16.4 \
+    scipy==1.2.2 \
+    scikit-learn==0.20.3 \
+    pandas==0.24.2 \
+    Pillow==6.1.0 \
+    h5py==2.9.0 \
+    keras_applications==1.0.8 \
+    keras_preprocessing==1.1.0 \
+    requests==2.22.0 \
+    keras==2.2.4 \
+    awscli==1.16.196 \
+    mpi4py==3.0.2 \
+    # "sagemaker-tensorflow>=1.14,<1.15" \ # we will uncomment this line after the tensorflow-extensions release is unblocked
     # Let's install TensorFlow separately in the end to avoid
     # the library version to be overwritten
-    ${PIP} install --force-reinstall --no-cache-dir -U \
-           ${TF_URL} \
-           horovod==0.16.4 && \
-    ${PIP} install --no-cache-dir -U $framework_support_installable && \
-           rm -f $framework_support_installable && \
-    ${PIP} uninstall -y --no-cache-dir \
-           markdown
+    && ${PIP} install --force-reinstall --no-cache-dir -U ${TF_URL} \
+    && ${PIP} install --no-cache-dir -U $framework_support_installable && \
+           rm -f $framework_support_installable \
+    && ${PIP} install --no-cache-dir -U horovod==0.16.4 \
+    && ${PIP} uninstall -y --no-cache-dir \
+    markdown
 
 # Remove GCC pinning
 RUN update-alternatives --remove gcc /usr/bin/gcc-4.9 && \
